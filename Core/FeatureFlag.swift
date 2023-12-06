@@ -28,15 +28,18 @@ public enum FeatureFlag: String {
     case autofillInlineIconCredentials
     case autofillAccessCredentialManagement
     case autofillPasswordGeneration
+    case autofillOnByDefault
     case incontextSignup
     case appTrackingProtection
     case networkProtection
+    case networkProtectionWaitlistAccess
+    case networkProtectionWaitlistActive
 }
 
 extension FeatureFlag: FeatureFlagSourceProviding {
     public var source: FeatureFlagSource {
         switch self {
-        case .debugMenu, .sync, .appTrackingProtection, .networkProtection:
+        case .debugMenu, .sync, .appTrackingProtection, .networkProtection, .networkProtectionWaitlistAccess, .networkProtectionWaitlistActive:
             return .internalOnly
         case .autofillCredentialInjecting:
             return .remoteReleasable(.subfeature(AutofillSubfeature.credentialsAutofill))
@@ -48,6 +51,8 @@ extension FeatureFlag: FeatureFlagSourceProviding {
             return .remoteReleasable(.subfeature(AutofillSubfeature.accessCredentialManagement))
         case .autofillPasswordGeneration:
             return .remoteReleasable(.subfeature(AutofillSubfeature.autofillPasswordGeneration))
+        case .autofillOnByDefault:
+            return .remoteReleasable(.subfeature(AutofillSubfeature.onByDefault))
         case .incontextSignup:
             return .remoteReleasable(.feature(.incontextSignup))
         }

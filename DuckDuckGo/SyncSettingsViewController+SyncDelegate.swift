@@ -25,6 +25,18 @@ import AVFoundation
 
 extension SyncSettingsViewController: SyncManagementViewModelDelegate {
 
+    func launchAutofillViewController() {
+        guard let mainVC = view.window?.rootViewController as? MainViewController else { return }
+        dismiss(animated: true)
+        mainVC.launchAutofillLogins()
+    }
+
+    func launchBookmarksViewController() {
+        guard let mainVC = view.window?.rootViewController as? MainViewController else { return }
+        dismiss(animated: true)
+        mainVC.segueToBookmarks()
+    }
+
     func updateDeviceName(_ name: String) {
         Task { @MainActor in
             rootView.model.devices = []
@@ -37,13 +49,15 @@ extension SyncSettingsViewController: SyncManagementViewModelDelegate {
         }
     }
 
-    func createAccountAndStartSyncing() {
+    func createAccountAndStartSyncing(optionsViewModel: SyncSettingsViewModel) {
         Task { @MainActor in
             do {
+                self.dismissPresentedViewController()
+                self.showPreparingSync()
                 try await syncService.createAccount(deviceName: deviceName, deviceType: deviceType)
                 self.rootView.model.syncEnabled(recoveryCode: recoveryCode)
                 self.refreshDevices()
-                self.showRecoveryPDF()
+                navigationController?.topViewController?.dismiss(animated: true, completion: showRecoveryPDF)
             } catch {
                 handleError(error)
             }
@@ -56,58 +70,58 @@ extension SyncSettingsViewController: SyncManagementViewModelDelegate {
         assertionFailure(error.localizedDescription)
     }
 
-    func showSyncSetup() {
-        let model = TurnOnSyncViewModel { [weak self] in
-            self?.dismissPresentedViewController()
-            // Handle the finished logic in the closing of the view controller so that we also handle the
-            //  user dismissing it (cancel, swipe down, etc)
-        }
-
-        let controller = DismissibleHostingController(rootView: TurnOnSyncView(model: model)) { [weak self] in
-            self?.rootView.model.setupFinished(model)
-        }
-
-        navigationController?.present(controller, animated: true)
-    }
-
     func showSyncWithAnotherDevice() {
-        collectCode(showConnectMode: syncService.account == nil)
-    }
-
-    func showRecoverData() {
         collectCode(showConnectMode: true)
     }
 
-    func showDeviceConnected(_ devices: [SyncSettingsViewModel.Device]) {
-        let model = SaveRecoveryKeyViewModel(key: recoveryCode) { [weak self] in
-            self?.shareRecoveryPDF()
-        }
-        let controller = UIHostingController(rootView: DeviceConnectedView(model, devices: devices))
+    func showRecoverData() {
+        dismissPresentedViewController()
+        collectCode(showConnectMode: false)
+    }
+
+    func showDeviceConnected() {
+        let controller = UIHostingController(
+            rootView: DeviceConnectedView())
         navigationController?.present(controller, animated: true) { [weak self] in
             self?.rootView.model.syncEnabled(recoveryCode: self!.recoveryCode)
-            self?.refreshDevices()
         }
     }
 
-    func showRecoveryPDF() {
-        let model = SaveRecoveryKeyViewModel(key: recoveryCode) { [weak self] in
-            self?.shareRecoveryPDF()
-        }
-        let controller = UIHostingController(rootView: SaveRecoveryKeyView(model: model))
+    func showPreparingSync() {
+        let controller = UIHostingController(rootView: PreparingToSyncView())
         navigationController?.present(controller, animated: true)
     }
 
+    @MainActor
+    func showRecoveryPDF() {
+        let model = SaveRecoveryKeyViewModel(key: recoveryCode) { [weak self] in
+            self?.shareRecoveryPDF()
+        } onDismiss: {
+            self.showDeviceConnected()
+        }
+        let controller = UIHostingController(rootView: SaveRecoveryKeyView(model: model))
+        navigationController?.present(controller, animated: true) { [weak self] in
+            self?.rootView.model.syncEnabled(recoveryCode: self!.recoveryCode)
+        }
+    }
+
     private func collectCode(showConnectMode: Bool) {
-        let model = ScanOrPasteCodeViewModel(showConnectMode: showConnectMode)
+        let model = ScanOrPasteCodeViewModel(showConnectMode: showConnectMode, recoveryCode: recoveryCode.isEmpty ? nil : recoveryCode)
         model.delegate = self
 
-        let controller = UIHostingController(rootView: ScanOrPasteCodeView(model: model))
+        var controller: UIHostingController<AnyView>
+        if showConnectMode {
+            controller = UIHostingController(rootView: AnyView(ScanOrSeeCode(model: model)))
+        } else {
+            controller = UIHostingController(rootView: AnyView(ScanOrEnterCodeToRecoverSyncedDataView(model: model)))
+        }
 
         let navController = UIDevice.current.userInterfaceIdiom == .phone
         ? PortraitNavigationController(rootViewController: controller)
         : UINavigationController(rootViewController: controller)
 
         navController.overrideUserInterfaceStyle = .dark
+        navController.setNeedsStatusBarAppearanceUpdate()
         navController.modalPresentationStyle = .fullScreen
         navigationController?.present(navController, animated: true) {
             self.checkCameraPermission(model: model)
@@ -144,6 +158,8 @@ extension SyncSettingsViewController: SyncManagementViewModelDelegate {
                     do {
                         self.rootView.model.isSyncEnabled = false
                         try await self.syncService.disconnect()
+                        AppUserDefaults().isSyncBookmarksPaused = false
+                        AppUserDefaults().isSyncCredentialsPaused = false
                     } catch {
                         self.handleError(error)
                     }
@@ -167,6 +183,8 @@ extension SyncSettingsViewController: SyncManagementViewModelDelegate {
                     do {
                         self.rootView.model.isSyncEnabled = false
                         try await self.syncService.deleteAccount()
+                        AppUserDefaults().isSyncBookmarksPaused = false
+                        AppUserDefaults().isSyncCredentialsPaused = false
                     } catch {
                         self.handleError(error)
                     }

@@ -46,20 +46,55 @@ extension ConnectionServerInfoObserverThroughSession {
 
 extension NetworkProtectionKeychainTokenStore {
     convenience init() {
-        // Error events to be added as part of https://app.asana.com/0/1203137811378537/1205112639044115/f
         self.init(keychainType: .dataProtection(.unspecified),
                   serviceName: "\(Bundle.main.bundleIdentifier!).authToken",
-                  errorEvents: nil)
+                  errorEvents: .networkProtectionAppDebugEvents)
     }
 }
 
 extension NetworkProtectionCodeRedemptionCoordinator {
-    private static var errorEvents: EventMapping<NetworkProtectionError> = .init { _, _, _, _ in
-    }
-
-    // Error events to be added as part of https://app.asana.com/0/1203137811378537/1205112639044115/f
     convenience init() {
-        self.init(tokenStore: NetworkProtectionKeychainTokenStore(), errorEvents: Self.errorEvents)
+        let settings = VPNSettings(defaults: .networkProtectionGroupDefaults)
+        self.init(
+            environment: settings.selectedEnvironment,
+            tokenStore: NetworkProtectionKeychainTokenStore(),
+            errorEvents: .networkProtectionAppDebugEvents
+        )
+    }
+}
+
+extension NetworkProtectionVPNNotificationsViewModel {
+    convenience init() {
+        self.init(
+            notificationsAuthorization: NotificationsAuthorizationController(),
+            settings: VPNSettings(defaults: .networkProtectionGroupDefaults)
+        )
+    }
+}
+
+extension NetworkProtectionVPNSettingsViewModel {
+    convenience init() {
+        self.init(settings: VPNSettings(defaults: .networkProtectionGroupDefaults))
+    }
+}
+
+extension NetworkProtectionLocationListCompositeRepository {
+    convenience init() {
+        let settings = VPNSettings(defaults: .networkProtectionGroupDefaults)
+        self.init(
+            environment: settings.selectedEnvironment,
+            tokenStore: NetworkProtectionKeychainTokenStore()
+        )
+    }
+}
+
+extension NetworkProtectionVPNLocationViewModel {
+    convenience init() {
+        let locationListRepository = NetworkProtectionLocationListCompositeRepository()
+        self.init(
+            locationListRepository: locationListRepository,
+            settings: VPNSettings(defaults: .networkProtectionGroupDefaults)
+        )
     }
 }
 

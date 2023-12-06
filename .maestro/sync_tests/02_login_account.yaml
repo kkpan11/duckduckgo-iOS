@@ -1,0 +1,43 @@
+appId: com.duckduckgo.mobile.ios
+tags:
+    - sync
+
+---
+
+# Create an account
+- clearState
+- launchApp
+- runFlow: 
+    when: 
+      visible: 
+        text: "Let’s Do It!"
+        index: 0
+    file: ../shared/onboarding.yaml
+
+- tapOn: Settings
+- runFlow:
+    file: ../shared/set_internal_user.yaml
+- runFlow:
+    file: ../shared/sync_create.yaml
+
+# Log Out
+- assertVisible: Sync & Backup
+- tapOn: Turn Off Sync & Backup...
+- assertVisible: Turn Off Sync?
+- tapOn: Remove
+
+# Login
+- assertVisible: Sync & Backup
+- tapOn: Sync with Another Device
+- assertVisible: Scan QR Code
+- tapOn: Manually Enter Code
+- tapOn: Paste
+- assertVisible: Save Recovery Code
+- tapOn: Next
+- assertVisible: Your Data is Synced!
+- tapOn: Done
+
+# Clean up
+- assertVisible: Sync & Backup
+- runFlow:
+    file: ../shared/sync_delete.yaml

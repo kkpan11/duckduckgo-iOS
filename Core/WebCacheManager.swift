@@ -246,19 +246,31 @@ public class WebCacheManager {
     }
 
     private func removeObservationsData() {
-        guard let bundleID = Bundle.main.bundleIdentifier else {
-            return
+        if let pool = getValidDatabasePool() {
+            removeObservationsData(from: pool)
+        } else {
+            os_log("Could not find valid pool to clear observations data", log: .generalLog, type: .debug)
         }
-
-        let databaseURL = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("WebKit/\(bundleID)/WebsiteData/ResourceLoadStatistics/observations.db")
-
-        guard let pool = try? DatabasePool(path: databaseURL.absoluteString) else {
-            return
-        }
-
-        removeObservationsData(from: pool)
     }
+
+    func getValidDatabasePool() -> DatabasePool? {
+        let bundleID = Bundle.main.bundleIdentifier ?? ""
+
+        let databaseURLs = [
+            FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+                       .appendingPathComponent("WebKit/WebsiteData/ResourceLoadStatistics/observations.db"),
+            FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+                       .appendingPathComponent("WebKit/\(bundleID)/WebsiteData/ResourceLoadStatistics/observations.db")
+        ]
+
+        guard let validURL = databaseURLs.first(where: { FileManager.default.fileExists(atPath: $0.path) }),
+              let pool = try? DatabasePool(path: validURL.absoluteString) else {
+            return nil
+        }
+
+        return pool
+    }
+
 
     private func removeObservationsData(from pool: DatabasePool) {
          do {

@@ -18,6 +18,7 @@
 //
 
 import Foundation
+import Bookmarks
 import Core
 import WidgetKit
 
@@ -27,14 +28,18 @@ public class AppUserDefaults: AppSettings {
         public static let doNotSellStatusChange = Notification.Name("com.duckduckgo.app.DoNotSellStatusChange")
         public static let currentFireButtonAnimationChange = Notification.Name("com.duckduckgo.app.CurrentFireButtonAnimationChange")
         public static let textSizeChange = Notification.Name("com.duckduckgo.app.TextSizeChange")
+        public static let favoritesDisplayModeChange = Notification.Name("com.duckduckgo.app.FavoritesDisplayModeChange")
+        public static let syncPausedStateChanged = SyncBookmarksAdapter.syncBookmarksPausedStateChanged
+        public static let syncCredentialsPausedStateChanged = SyncCredentialsAdapter.syncCredentialsPausedStateChanged
         public static let autofillEnabledChange = Notification.Name("com.duckduckgo.app.AutofillEnabledChange")
         public static let didVerifyInternalUser = Notification.Name("com.duckduckgo.app.DidVerifyInternalUser")
         public static let inspectableWebViewsToggled = Notification.Name("com.duckduckgo.app.DidToggleInspectableWebViews")
+        public static let addressBarPositionChanged = Notification.Name("com.duckduckgo.app.AddressBarPositionChanged")
     }
 
     private let groupName: String
 
-    private struct Keys {
+    struct Keys {
         static let autocompleteKey = "com.duckduckgo.app.autocompleteDisabledKey"
         static let currentThemeNameKey = "com.duckduckgo.app.currentThemeNameKey"
         
@@ -60,6 +65,9 @@ public class AppUserDefaults: AppSettings {
         static let currentFireButtonAnimationKey = "com.duckduckgo.app.currentFireButtonAnimationKey"
         
         static let autofillCredentialsEnabled = "com.duckduckgo.ios.autofillCredentialsEnabled"
+        static let autofillIsNewInstallForOnByDefault = "com.duckduckgo.ios.autofillIsNewInstallForOnByDefault"
+
+        static let favoritesDisplayMode = "com.duckduckgo.ios.favoritesDisplayMode"
     }
 
     private struct DebugKeys {
@@ -69,6 +77,12 @@ public class AppUserDefaults: AppSettings {
     private var userDefaults: UserDefaults? {
         return UserDefaults(suiteName: groupName)
     }
+
+    private var bookmarksUserDefaults: UserDefaults? {
+        UserDefaults(suiteName: "group.com.duckduckgo.bookmarks")
+    }
+
+    lazy var featureFlagger = AppDependencyProvider.shared.featureFlagger
 
     init(groupName: String = "group.com.duckduckgo.app") {
         self.groupName = groupName
@@ -173,25 +187,64 @@ public class AppUserDefaults: AppSettings {
             userDefaults?.setValue(newValue.rawValue, forKey: Keys.currentFireButtonAnimationKey)
         }
     }
-    
+
+    @UserDefaultsWrapper(key: .addressBarPosition, defaultValue: nil)
+    private var addressBarPositionStorage: String?
+
+    var currentAddressBarPosition: AddressBarPosition {
+        get {
+            return AddressBarPosition(rawValue: addressBarPositionStorage?.lowercased()  ?? "") ?? .top
+        }
+
+        set {
+            addressBarPositionStorage = newValue.rawValue
+            NotificationCenter.default.post(name: Notifications.addressBarPositionChanged, object: currentAddressBarPosition)
+        }
+    }
+
     @UserDefaultsWrapper(key: .textSize, defaultValue: 100)
     var textSize: Int
+
+    @UserDefaultsWrapper(key: .syncBookmarksPaused, defaultValue: false)
+    var isSyncBookmarksPaused: Bool
+
+    @UserDefaultsWrapper(key: .syncCredentialsPaused, defaultValue: false)
+    var isSyncCredentialsPaused: Bool
+
+    public var favoritesDisplayMode: FavoritesDisplayMode {
+        get {
+            guard let string = userDefaults?.string(forKey: Keys.favoritesDisplayMode), let favoritesDisplayMode = FavoritesDisplayMode(string) else {
+                return .default
+            }
+            return favoritesDisplayMode
+        }
+        set {
+            userDefaults?.setValue(newValue.description, forKey: Keys.favoritesDisplayMode)
+            bookmarksUserDefaults?.setValue(newValue.description, forKey: Keys.favoritesDisplayMode)
+        }
+    }
 
     private func setAutofillCredentialsEnabledAutomaticallyIfNecessary() {
         if autofillCredentialsHasBeenEnabledAutomaticallyIfNecessary {
             return
         }
         if !autofillCredentialsSavePromptShowAtLeastOnce {
-            autofillCredentialsHasBeenEnabledAutomaticallyIfNecessary = true
-            autofillCredentialsEnabled = true
+            if let isNewInstall = autofillIsNewInstallForOnByDefault,
+               isNewInstall,
+               featureFlagger.isFeatureOn(.autofillOnByDefault) {
+                autofillCredentialsHasBeenEnabledAutomaticallyIfNecessary = true
+                autofillCredentialsEnabled = true
+            }
         }
     }
     
     var autofillCredentialsEnabled: Bool {
         get {
-            // In future, we'll use setAutofillCredentialsEnabledAutomaticallyIfNecessary() here to automatically turn on autofill for people
-            // That haven't seen the save prompt before.
-            // For now, whilst internal testing is still happening, it's still set to default to be enabled
+            // setAutofillCredentialsEnabledAutomaticallyIfNecessary() used here to automatically turn on autofill for people if:
+            // 1. They haven't seen the save prompt before
+            // 2. They are a new install
+            // 3. The feature flag is enabled
+            setAutofillCredentialsEnabledAutomaticallyIfNecessary()
             return userDefaults?.object(forKey: Keys.autofillCredentialsEnabled) as? Bool ?? false
         }
         
@@ -199,13 +252,26 @@ public class AppUserDefaults: AppSettings {
             userDefaults?.set(newValue, forKey: Keys.autofillCredentialsEnabled)
         }
     }
-    
+
     @UserDefaultsWrapper(key: .autofillCredentialsSavePromptShowAtLeastOnce, defaultValue: false)
     var autofillCredentialsSavePromptShowAtLeastOnce: Bool
     
     @UserDefaultsWrapper(key: .autofillCredentialsHasBeenEnabledAutomaticallyIfNecessary, defaultValue: false)
     var autofillCredentialsHasBeenEnabledAutomaticallyIfNecessary: Bool
-    
+
+    var autofillIsNewInstallForOnByDefault: Bool? {
+        get {
+            return userDefaults?.object(forKey: Keys.autofillIsNewInstallForOnByDefault) as? Bool
+        }
+        set {
+            userDefaults?.set(newValue, forKey: Keys.autofillIsNewInstallForOnByDefault)
+        }
+    }
+
+    func setAutofillIsNewInstallForOnByDefault() {
+        autofillIsNewInstallForOnByDefault = StatisticsUserDefaults().installDate == nil
+    }
+
     @UserDefaultsWrapper(key: .voiceSearchEnabled, defaultValue: false)
     var voiceSearchEnabled: Bool
 

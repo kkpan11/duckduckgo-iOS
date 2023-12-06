@@ -42,7 +42,8 @@ extension TabViewController {
         entries.append(BrowsingMenuEntry.regular(name: UserText.actionShare, image: UIImage(named: "Share-24")!, action: { [weak self] in
             guard let self = self else { return }
             guard let menu = self.chromeDelegate?.omniBar.menuButton else { return }
-            self.onShareAction(forLink: self.link!, fromView: menu, orginatedFromMenu: true)
+            Pixel.fire(pixel: .browsingMenuShare)
+            self.onShareAction(forLink: self.link!, fromView: menu)
         }))
         
         entries.append(BrowsingMenuEntry.regular(name: UserText.actionCopy, image: UIImage(named: "Copy-24")!, action: { [weak self] in
@@ -54,7 +55,9 @@ extension TabViewController {
             }
             
             Pixel.fire(pixel: .browsingMenuCopy)
-            ActionMessageView.present(message: UserText.actionCopyMessage)
+            let addressBarBottom = strongSelf.appSettings.currentAddressBarPosition.isBottom
+            ActionMessageView.present(message: UserText.actionCopyMessage,
+                                      presentationLocation: .withBottomBar(andAddressBarBottom: addressBarBottom))
         }))
         
         entries.append(BrowsingMenuEntry.regular(name: UserText.actionPrint, image: UIImage(named: "Print-24")!, action: { [weak self] in
@@ -220,7 +223,9 @@ extension TabViewController {
         syncService.scheduler.notifyDataChanged()
 
         ActionMessageView.present(message: UserText.webSaveBookmarkDone,
-                                  actionTitle: UserText.actionGenericEdit, onAction: {
+                                  actionTitle: UserText.actionGenericEdit,
+                                  presentationLocation: .withBottomBar(andAddressBarBottom: appSettings.currentAddressBarPosition.isBottom),
+                                  onAction: {
             self.performEditBookmarkAction(for: link)
         })
     }
@@ -234,7 +239,7 @@ extension TabViewController {
     private func buildFavoriteEntry(for link: Link,
                                     bookmark: BookmarkEntity?,
                                     with bookmarksInterface: MenuBookmarksInteracting) -> BrowsingMenuEntry {
-        if bookmark?.isFavorite ?? false {
+        if bookmark?.isFavorite(on: .mobile) ?? false {
             let action: () -> Void = { [weak self] in
                 Pixel.fire(pixel: .browsingMenuRemoveFromFavorites)
                 self?.performRemoveFavoriteAction(for: link, with: bookmarksInterface)
@@ -266,7 +271,10 @@ extension TabViewController {
         WidgetCenter.shared.reloadAllTimelines()
         syncService.scheduler.notifyDataChanged()
 
-        ActionMessageView.present(message: UserText.webSaveFavoriteDone, actionTitle: UserText.actionGenericUndo, onAction: {
+        ActionMessageView.present(message: UserText.webSaveFavoriteDone,
+                                  actionTitle: UserText.actionGenericUndo,
+                                  presentationLocation: .withBottomBar(andAddressBarBottom: appSettings.currentAddressBarPosition.isBottom),
+                                  onAction: {
             self.performRemoveFavoriteAction(for: link, with: bookmarksInterface)
         })
     }
@@ -277,7 +285,10 @@ extension TabViewController {
         WidgetCenter.shared.reloadAllTimelines()
         syncService.scheduler.notifyDataChanged()
 
-        ActionMessageView.present(message: UserText.webFavoriteRemoved, actionTitle: UserText.actionGenericUndo, onAction: {
+        ActionMessageView.present(message: UserText.webFavoriteRemoved,
+                                  actionTitle: UserText.actionGenericUndo,
+                                  presentationLocation: .withBottomBar(andAddressBarBottom: appSettings.currentAddressBarPosition.isBottom),
+                                  onAction: {
             self.performAddFavoriteAction(for: link, with: bookmarksInterface)
         })
     }
@@ -292,10 +303,7 @@ extension TabViewController {
         }
     }
 
-    func onShareAction(forLink link: Link, fromView view: UIView, orginatedFromMenu: Bool) {
-        Pixel.fire(pixel: .browsingMenuShare,
-                   withAdditionalParameters: [PixelParameters.originatedFromMenu: orginatedFromMenu ? "1" : "0"])
-        
+    func onShareAction(forLink link: Link, fromView view: UIView) {
         shareLinkWithTemporaryDownload(temporaryDownloadForPreviewedFile, originalLink: link) { [weak self] link in
             guard let self = self else { return }
             var items: [Any] = [link, self.webView.viewPrintFormatter()]
@@ -303,10 +311,40 @@ extension TabViewController {
             if let webView = self.webView {
                 items.append(webView)
             }
-            self.presentShareSheet(withItems: items, fromView: view)
+
+            self.presentShareSheet(withItems: items, fromView: view) { [weak self] activityType, result, _, error in
+                if result {
+                    Pixel.fire(pixel: .shareSheetResultSuccess)
+                } else {
+                    Pixel.fire(pixel: .shareSheetResultFail, error: error)
+                }
+
+                if let activityType {
+                    self?.firePixelForActivityType(activityType)
+                }
+            }
         }
     }
     
+    private func firePixelForActivityType(_ activityType: UIActivity.ActivityType) {
+        switch activityType {
+        case .copyToPasteboard:
+            Pixel.fire(pixel: .shareSheetActivityCopy)
+        case .saveBookmarkInDuckDuckGo:
+            Pixel.fire(pixel: .shareSheetActivityAddBookmark)
+        case .saveFavoriteInDuckDuckGo:
+            Pixel.fire(pixel: .shareSheetActivityAddFavorite)
+        case .findInPage:
+            Pixel.fire(pixel: .shareSheetActivityFindInPage)
+        case .print:
+            Pixel.fire(pixel: .shareSheetActivityPrint)
+        case .addToReadingList:
+            Pixel.fire(pixel: .shareSheetActivityAddToReadingList)
+        default:
+            Pixel.fire(pixel: .shareSheetActivityOther)
+        }
+    }
+
     private func shareLinkWithTemporaryDownload(_ temporaryDownload: Download?,
                                                 originalLink: Link,
                                                 completion: @escaping(Link) -> Void) {
@@ -398,7 +436,9 @@ extension TabViewController {
         
         ContentBlocking.shared.contentBlockingManager.scheduleCompilation()
         
-        ActionMessageView.present(message: message, actionTitle: UserText.actionGenericUndo, onAction: { [weak self] in
+        ActionMessageView.present(message: message, actionTitle: UserText.actionGenericUndo,
+                                  presentationLocation: .withBottomBar(andAddressBarBottom: appSettings.currentAddressBarPosition.isBottom),
+                                  onAction: { [weak self] in
             self?.togglePrivacyProtection(domain: domain)
         })
     }

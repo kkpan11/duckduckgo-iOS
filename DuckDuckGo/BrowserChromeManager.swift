@@ -31,8 +31,8 @@ protocol BrowserChromeDelegate: AnyObject {
     var toolbarHeight: CGFloat { get }
     var barsMaxHeight: CGFloat { get }
 
-    var omniBar: OmniBar! { get }
-    var tabsBar: UIView! { get }
+    var omniBar: OmniBar { get }
+    var tabBarContainer: UIView { get }
 }
 
 class BrowserChromeManager: NSObject, UIScrollViewDelegate {

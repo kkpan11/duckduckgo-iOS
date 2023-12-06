@@ -24,6 +24,7 @@ import Core
 protocol SaveLoginViewModelDelegate: AnyObject {
     func saveLoginViewModelDidSave(_ viewModel: SaveLoginViewModel)
     func saveLoginViewModelDidCancel(_ viewModel: SaveLoginViewModel)
+    func saveLoginViewModelNeverPrompt(_ viewModel: SaveLoginViewModel)
     func saveLoginViewModelConfirmKeepUsing(_ viewModel: SaveLoginViewModel, isAlreadyDismissed: Bool)
     func saveLoginViewModelDidResizeContent(_ viewModel: SaveLoginViewModel, contentHeight: CGFloat)
 }
@@ -49,7 +50,7 @@ final class SaveLoginViewModel: ObservableObject {
     @UserDefaultsWrapper(key: .autofillFirstTimeUser, defaultValue: true)
     private var autofillFirstTimeUser: Bool
 
-    private let numberOfRejectionsToTurnOffAutofill = 3
+    private let numberOfRejectionsToTurnOffAutofill = 2
     private let maximumPasswordDisplayCount = 40
     private let credentialManager: SaveAutofillLoginManagerProtocol
     private let appSettings: AppSettings
@@ -179,5 +180,11 @@ final class SaveLoginViewModel: ObservableObject {
         didSave = true
         autofillFirstTimeUser = false
         delegate?.saveLoginViewModelDidSave(self)
+    }
+
+    func neverPrompt() {
+        didSave = true
+        autofillFirstTimeUser = false
+        delegate?.saveLoginViewModelNeverPrompt(self)
     }
 }

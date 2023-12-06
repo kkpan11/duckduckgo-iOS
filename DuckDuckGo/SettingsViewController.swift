@@ -40,6 +40,8 @@ class SettingsViewController: UITableViewController {
     @IBOutlet weak var defaultBrowserCell: UITableViewCell!
     @IBOutlet weak var themeAccessoryText: UILabel!
     @IBOutlet weak var fireButtonAnimationAccessoryText: UILabel!
+    @IBOutlet weak var addressBarPositionCell: UITableViewCell!
+    @IBOutlet weak var addressBarPositionAccessoryText: UILabel!
     @IBOutlet weak var appIconCell: UITableViewCell!
     @IBOutlet weak var appIconImageView: UIImageView!
     @IBOutlet weak var autocompleteToggle: UISwitch!
@@ -71,8 +73,6 @@ class SettingsViewController: UITableViewController {
     @IBOutlet weak var debugCell: UITableViewCell!
     @IBOutlet weak var voiceSearchCell: UITableViewCell!
     @IBOutlet weak var voiceSearchToggle: UISwitch!
-
-    fileprivate var onDidAppearAction: () -> Void = {}
     
     @IBOutlet var labels: [UILabel]!
     @IBOutlet var accessoryLabels: [UILabel]!
@@ -116,6 +116,14 @@ class SettingsViewController: UITableViewController {
         return featureFlagger.isFeatureOn(.sync)
     }
 
+    private var shouldShowTextSizeCell: Bool {
+        return UIDevice.current.userInterfaceIdiom != .pad
+    }
+
+    private var shouldShowAddressBarPositionCell: Bool {
+        return UIDevice.current.userInterfaceIdiom != .pad
+    }
+
     private lazy var shouldShowNetPCell: Bool = {
 #if NETWORK_PROTECTION
         if #available(iOS 15, *) {
@@ -135,6 +143,7 @@ class SettingsViewController: UITableViewController {
         configureSyncCell()
         configureThemeCellAccessory()
         configureFireButtonAnimationCellAccessory()
+        configureAddressBarPositionCell()
         configureTextSizeCell()
         configureDisableAutocompleteToggle()
         configureSecurityToggles()
@@ -163,6 +172,7 @@ class SettingsViewController: UITableViewController {
         super.viewWillAppear(animated)
         
         configureFireButtonAnimationCellAccessory()
+        configureAddressBarPositionCell()
         configureTextSizeCell()
         configureAutoClearCellAccessory()
         configureRememberLogins()
@@ -172,17 +182,15 @@ class SettingsViewController: UITableViewController {
         configureEmailProtectionAccessoryText()
         configureMacBrowserWaitlistCell()
         configureWindowsBrowserWaitlistCell()
+        configureSyncCell()
+
+#if NETWORK_PROTECTION
+        updateNetPCellSubtitle(connectionStatus: connectionObserver.recentValue)
+#endif
 
         // Make sure multiline labels are correctly presented
         tableView.setNeedsLayout()
         tableView.layoutIfNeeded()
-    }
-
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-
-        onDidAppearAction()
-        onDidAppearAction = {}
     }
 
     init?(coder: NSCoder,
@@ -202,22 +210,16 @@ class SettingsViewController: UITableViewController {
         fatalError("Not implemented")
     }
 
-    func openLoginsWhenPresented() {
-        onDidAppearAction = { [weak self] in
-            self?.showAutofill()
-        }
+    func openLogins() {
+        showAutofill()
     }
 
-    func openLoginsWhenPresented(accountDetails: SecureVaultModels.WebsiteAccount) {
-        onDidAppearAction = { [weak self] in
-            self?.showAutofillAccountDetails(accountDetails)
-        }
+    func openLogins(accountDetails: SecureVaultModels.WebsiteAccount) {
+        showAutofillAccountDetails(accountDetails)
     }
 
-    func openCookiePopupManagementWhenPresented() {
-        onDidAppearAction = { [weak self] in
-            self?.showCookiePopupManagement(animated: true)
-        }
+    func openCookiePopupManagement() {
+        showCookiePopupManagement(animated: true)
     }
 
     @IBSegueAction func onCreateRootDebugScreen(_ coder: NSCoder, sender: Any?, segueIdentifier: String?) -> RootDebugViewController {
@@ -256,6 +258,10 @@ class SettingsViewController: UITableViewController {
     }
 
     private func configureSyncCell() {
+        syncCell.textLabel?.text = "Sync & Backup"
+        if SyncBookmarksAdapter.isSyncBookmarksPaused || SyncCredentialsAdapter.isSyncCredentialsPaused {
+            syncCell.textLabel?.text = "⚠️ " + "Sync & Backup"
+        }
         syncCell.isHidden = !shouldShowSyncCell
     }
 
@@ -278,9 +284,14 @@ class SettingsViewController: UITableViewController {
     private func configureFireButtonAnimationCellAccessory() {
         fireButtonAnimationAccessoryText.text = appSettings.currentFireButtonAnimation.descriptionText
     }
-    
+
+    private func configureAddressBarPositionCell() {
+        addressBarPositionCell.isHidden = !shouldShowAddressBarPositionCell
+        addressBarPositionAccessoryText.text = appSettings.currentAddressBarPosition.descriptionText
+    }
+
     private func configureTextSizeCell() {
-        textSizeCell.isHidden = UIDevice.current.userInterfaceIdiom == .pad
+        textSizeCell.isHidden = !shouldShowTextSizeCell
         textSizeAccessoryText.text = "\(appSettings.textSize)%"
     }
 
@@ -348,28 +359,36 @@ class SettingsViewController: UITableViewController {
     private func configureNetPCell() {
         netPCell.isHidden = !shouldShowNetPCell
 #if NETWORK_PROTECTION
+        updateNetPCellSubtitle(connectionStatus: connectionObserver.recentValue)
         connectionObserver.publisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] status in
-                let detailText: String
-                switch status {
-                case .connected:
-                    detailText = UserText.netPCellConnected
-                default:
-                    detailText = UserText.netPCellDisconnected
-                }
-                self?.netPCell.detailTextLabel?.text = detailText
+                self?.updateNetPCellSubtitle(connectionStatus: status)
             }
             .store(in: &cancellables)
 #endif
     }
 
+#if NETWORK_PROTECTION
+    private func updateNetPCellSubtitle(connectionStatus: ConnectionStatus) {
+        switch NetworkProtectionAccessController().networkProtectionAccessType() {
+        case .none, .waitlistAvailable, .waitlistJoined, .waitlistInvitedPendingTermsAcceptance:
+            netPCell.detailTextLabel?.text = VPNWaitlist.shared.settingsSubtitle
+        case .waitlistInvited, .inviteCodeInvited:
+            switch connectionStatus {
+            case .connected: netPCell.detailTextLabel?.text = UserText.netPCellConnected
+            default: netPCell.detailTextLabel?.text = UserText.netPCellDisconnected
+            }
+        }
+    }
+#endif
+
     private func configureDebugCell() {
         debugCell.isHidden = !shouldShowDebugCell
     }
 
-    private func showSync(animated: Bool = true) {
-        let controller = SyncSettingsViewController()
+    func showSync(animated: Bool = true) {
+        let controller = SyncSettingsViewController(syncService: syncService, syncBookmarksAdapter: syncDataProviders.bookmarksAdapter)
         navigationController?.pushViewController(controller, animated: animated)
     }
 
@@ -416,16 +435,24 @@ class SettingsViewController: UITableViewController {
     }
 
 #if NETWORK_PROTECTION
+    @available(iOS 15, *)
     private func showNetP() {
-        // This will be tidied up as part of https://app.asana.com/0/0/1205084446087078/f
-        let rootViewController = NetworkProtectionRootViewController { [weak self] in
-            self?.navigationController?.popViewController(animated: true)
-            let newRootViewController = NetworkProtectionRootViewController { }
-            self?.pushNetP(newRootViewController)
+        switch NetworkProtectionAccessController().networkProtectionAccessType() {
+        case .inviteCodeInvited, .waitlistInvited:
+            // This will be tidied up as part of https://app.asana.com/0/0/1205084446087078/f
+            let rootViewController = NetworkProtectionRootViewController { [weak self] in
+                self?.navigationController?.popViewController(animated: true)
+                let newRootViewController = NetworkProtectionRootViewController()
+                self?.pushNetP(newRootViewController)
+            }
+
+            pushNetP(rootViewController)
+        default:
+            navigationController?.pushViewController(VPNWaitlistViewController(nibName: nil, bundle: nil), animated: true)
         }
-        pushNetP(rootViewController)
     }
 
+    @available(iOS 15, *)
     private func pushNetP(_ rootViewController: NetworkProtectionRootViewController) {
         navigationController?.pushViewController(
             rootViewController,
@@ -448,15 +475,15 @@ class SettingsViewController: UITableViewController {
         let cell = tableView.cellForRow(at: indexPath)
 
         switch cell {
-            
+
         case defaultBrowserCell:
             Pixel.fire(pixel: .defaultBrowserButtonPressedSettings)
             guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
             UIApplication.shared.open(url)
-            
+
         case emailProtectionCell:
             showEmailWebDashboard()
-            
+
         case macBrowserWaitlistCell:
             showMacBrowserWaitlistViewController()
 
@@ -468,30 +495,26 @@ class SettingsViewController: UITableViewController {
 
         case syncCell:
             showSync()
-            
+
         case netPCell:
+            if #available(iOS 15, *) {
 #if NETWORK_PROTECTION
-            showNetP()
+                showNetP()
 #else
-            break
+                break
 #endif
-            
+            }
         default: break
         }
         
     }
     
     override func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
-        
         let theme = ThemeManager.shared.currentTheme
         cell.backgroundColor = theme.tableCellBackgroundColor
-        cell.setHighlightedStateBackgroundColor(theme.tableCellHighlightedBackgroundColor)
-        
-        if cell.accessoryType == .disclosureIndicator {
-            let accesoryImage = UIImageView(image: UIImage(named: "DisclosureIndicator"))
-            accesoryImage.frame = CGRect(x: 0, y: 0, width: 8, height: 13)
-            accesoryImage.tintColor = theme.tableCellAccessoryColor
-            cell.accessoryView = accesoryImage
+
+        if cell == netPCell {
+            DailyPixel.fire(pixel: .networkProtectionSettingsRowDisplayed)
         }
     }
 
@@ -518,6 +541,7 @@ class SettingsViewController: UITableViewController {
         return UITableView.automaticDimension
     }
     
+    /// Only use this to hide the header if the entire section can be conditionally hidden.
     override func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
         if syncSectionIndex == section && !shouldShowSyncCell {
             return CGFloat.leastNonzeroMagnitude
@@ -530,6 +554,7 @@ class SettingsViewController: UITableViewController {
         }
     }
     
+    /// Only use this to hide the footer if the entire section can be conditionally hidden.
     override func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
         if syncSectionIndex == section && !shouldShowSyncCell {
             return CGFloat.leastNonzeroMagnitude
@@ -537,23 +562,20 @@ class SettingsViewController: UITableViewController {
             return CGFloat.leastNonzeroMagnitude
         } else if debugSectionIndex == section && !shouldShowDebugCell {
             return CGFloat.leastNonzeroMagnitude
-        } else if moreFromDDGSectionIndex == section && !shouldShowNetPCell {
-            return CGFloat.leastNonzeroMagnitude
         } else {
             return super.tableView(tableView, heightForFooterInSection: section)
         }
     }
     
-    override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
-        return super.tableView(tableView, titleForFooterInSection: section)
-    }
-    
+    /// Only use this if the *last cell* in the section is to be conditionally hidden in order to retain the section rounding.
+    ///  If your cell is not the last you don't need to modify the number of rows.
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         let rows = super.tableView(tableView, numberOfRowsInSection: section)
-        if section == appearanceSectionIndex && textSizeCell.isHidden {
+        if section == moreFromDDGSectionIndex && !shouldShowNetPCell {
             return rows - 1
-        } else if section == moreFromDDGSectionIndex && !shouldShowNetPCell {
-            return rows - 1
+        } else if section == appearanceSectionIndex && UIDevice.current.userInterfaceIdiom == .pad {
+            // Both the text size and bottom bar settings are at the end of the section so need to reduce the section size appropriately
+            return rows - 2
         } else {
             return rows
         }
@@ -575,7 +597,11 @@ class SettingsViewController: UITableViewController {
             AppDependencyProvider.shared.voiceSearchHelper.enableVoiceSearch(enableVoiceSearch)
         }
     }
-    
+
+    @IBAction func onAboutTapped() {
+        navigationController?.pushViewController(AboutViewController(), animated: true)
+    }
+
     private func showNoMicrophonePermissionAlert() {
         let alertController = NoMicPermissionAlert.buildAlert()
         present(alertController, animated: true, completion: nil)

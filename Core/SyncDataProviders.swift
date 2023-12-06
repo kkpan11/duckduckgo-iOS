@@ -17,6 +17,7 @@
 //  limitations under the License.
 //
 
+import Bookmarks
 import BrowserServicesKit
 import Combine
 import Common
@@ -28,6 +29,7 @@ import SyncDataProviders
 public class SyncDataProviders: DataProvidersSource {
     public let bookmarksAdapter: SyncBookmarksAdapter
     public let credentialsAdapter: SyncCredentialsAdapter
+    public let settingsAdapter: SyncSettingsAdapter
 
     public func makeDataProviders() -> [DataProviding] {
         initializeMetadataDatabaseIfNeeded()
@@ -38,10 +40,12 @@ public class SyncDataProviders: DataProvidersSource {
 
         bookmarksAdapter.setUpProviderIfNeeded(database: bookmarksDatabase, metadataStore: syncMetadata)
         credentialsAdapter.setUpProviderIfNeeded(secureVaultFactory: secureVaultFactory, metadataStore: syncMetadata)
+        settingsAdapter.setUpProviderIfNeeded(metadataDatabase: syncMetadataDatabase, metadataStore: syncMetadata)
 
         let providers: [Any] = [
             bookmarksAdapter.provider as Any,
-            credentialsAdapter.provider as Any
+            credentialsAdapter.provider as Any,
+            settingsAdapter.provider as Any
         ]
 
         return providers.compactMap { $0 as? DataProviding }
@@ -81,13 +85,16 @@ public class SyncDataProviders: DataProvidersSource {
     public init(
         bookmarksDatabase: CoreDataDatabase,
         secureVaultFactory: AutofillVaultFactory = AutofillSecureVaultFactory,
-        secureVaultErrorReporter: SecureVaultErrorReporting
+        secureVaultErrorReporter: SecureVaultErrorReporting,
+        settingHandlers: [SettingSyncHandler],
+        favoritesDisplayModeStorage: FavoritesDisplayModeStoring
     ) {
         self.bookmarksDatabase = bookmarksDatabase
         self.secureVaultFactory = secureVaultFactory
         self.secureVaultErrorReporter = secureVaultErrorReporter
-        bookmarksAdapter = SyncBookmarksAdapter(database: bookmarksDatabase)
+        bookmarksAdapter = SyncBookmarksAdapter(database: bookmarksDatabase, favoritesDisplayModeStorage: favoritesDisplayModeStorage)
         credentialsAdapter = SyncCredentialsAdapter(secureVaultFactory: secureVaultFactory, secureVaultErrorReporter: secureVaultErrorReporter)
+        settingsAdapter = SyncSettingsAdapter(settingHandlers: settingHandlers)
     }
 
     private func initializeMetadataDatabaseIfNeeded() {

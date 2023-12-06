@@ -17,6 +17,7 @@
 //  limitations under the License.
 //
 
+import Bookmarks
 import Common
 import Kingfisher
 import UIKit
@@ -34,6 +35,7 @@ public class Favicons {
         static let fireproofCache = CacheType.fireproof.create()
         static let tabsCache = CacheType.tabs.create()
         static let targetImageSizePoints: CGFloat = 64
+        public static let tabsCachePath = "com.onevcat.Kingfisher.ImageCache.tabs"
         public static let maxFaviconSize: CGSize = CGSize(width: 192, height: 192)
         
         public static let caches = [
@@ -217,12 +219,20 @@ public class Favicons {
         }
     }
 
-    public func clearCache(_ cacheType: CacheType) {
+    public func clearCache(_ cacheType: CacheType, clearMemoryCache: Bool = false) {
         Constants.caches[cacheType]?.clearDiskCache()
+        
+        if clearMemoryCache {
+            Constants.caches[cacheType]?.clearMemoryCache()
+        }
     }
 
     private func removeFavicon(forDomain domain: String, fromCache cacheType: CacheType) {
         let key = defaultResource(forDomain: domain)?.cacheKey ?? domain
+        Constants.caches[cacheType]?.removeImage(forKey: key, fromDisk: true)
+    }
+
+    private func removeFavicon(forCacheKey key: String, fromCache cacheType: CacheType) {
         Constants.caches[cacheType]?.removeImage(forKey: key, fromDisk: true)
     }
 
@@ -234,7 +244,15 @@ public class Favicons {
     public func removeFireproofFavicon(forDomain domain: String) {
        removeFavicon(forDomain: domain, fromCache: .fireproof)
     }
-    
+
+    public func removeTabFavicon(forDomain domain: String) {
+       removeFavicon(forDomain: domain, fromCache: .tabs)
+    }
+
+    public func removeTabFavicon(forCacheKey key: String) {
+       removeFavicon(forCacheKey: key, fromCache: .tabs)
+    }
+
     private func copyFavicon(forDomain domain: String, fromCache: CacheType, toCache: CacheType, completion: ((UIImage?) -> Void)? = nil) {
         guard let resource = defaultResource(forDomain: domain),
              let options = kfOptions(forDomain: domain, usingCache: toCache) else { return }
@@ -364,6 +382,8 @@ public class Favicons {
             return
         }
 
+        /// DuckDuckGo Privacy Browser uses built-in functionality from iOS to fetch the highest quality favicons for your bookmarks and favorites.
+        /// This functionality uses a user agent that is different from other network requests made by the app in order to find the best favicon available.
         let metadataFetcher = LPMetadataProvider()
         let completion: (LPLinkMetadata?, Error?) -> Void = { metadata, metadataError in
             guard let iconProvider = metadata?.iconProvider, metadataError == nil else {
@@ -461,5 +481,36 @@ public class Favicons {
         return "\(Constants.salt)\(domain)".sha256()
     }
 
+}
+
+extension Favicons: Bookmarks.FaviconStoring {
+
+    public func hasFavicon(for domain: String) -> Bool {
+        guard let targetCache = Favicons.Constants.caches[.fireproof],
+              let resource = defaultResource(forDomain: domain)
+        else {
+            return false
+        }
+
+        return targetCache.isCached(forKey: resource.cacheKey)
+    }
+
+    public func storeFavicon(_ imageData: Data, with url: URL?, for documentURL: URL) async throws {
+
+        guard let domain = documentURL.host,
+              let options = kfOptions(forDomain: domain, withURL: documentURL, usingCache: .fireproof),
+              let resource = defaultResource(forDomain: domain),
+              let targetCache = Favicons.Constants.caches[.fireproof],
+              let image = UIImage(data: imageData)
+        else {
+            return
+        }
+
+        Task {
+            let image = self.scaleDownIfNeeded(image: image, toFit: Constants.maxFaviconSize)
+            targetCache.store(image, forKey: resource.cacheKey, options: .init(options))
+            WidgetCenter.shared.reloadAllTimelines()
+        }
+    }
 }
 // swiftlint:enable type_body_length file_length
